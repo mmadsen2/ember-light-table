@@ -1,6 +1,5 @@
-import { scrollTo } from 'ember-native-dom-helpers';
 import { setupRenderingTest } from 'ember-qunit';
-import { render, findAll, find, click } from '@ember/test-helpers';
+import { render, findAll, find, click, triggerEvent } from '@ember/test-helpers';
 import { module, test } from 'qunit';
 import hbs from 'htmlbars-inline-precompile';
 import setupMirageTest from 'ember-cli-mirage/test-support/setup-mirage';
@@ -45,13 +44,72 @@ module('Integration | Component | light table', function(hooks) {
 
     assert.equal(findAll('tbody > tr').length, 50, '50 rows are rendered');
 
-    let scrollContainer = '.tse-scroll-content';
-    let { scrollHeight } = find(scrollContainer);
+    let scrollContainer = find('.tse-scroll-content');
+    assert.ok(scrollContainer, 'scroll container was rendered');
+    let expectedScroll = 2501;
+    assert.equal(scrollContainer.scrollHeight, expectedScroll, 'scroll height is 2500 + 1px for height of lt-infinity');
 
-    assert.ok(findAll(scrollContainer).length > 0, 'scroll container was rendered');
-    assert.equal(scrollHeight, 2501, 'scroll height is 2500 + 1px for height of lt-infinity');
+    scrollContainer.scrollTop = expectedScroll;
+    await triggerEvent(scrollContainer, 'scroll');
+  });
 
-    await scrollTo(scrollContainer, 0, scrollHeight);
+  test('scrolled to bottom (multiple tables)', async function(assert) {
+    assert.expect(4);
+
+    this.set('table', new Table(Columns, this.server.createList('user', 50)));
+
+    this.set('onScrolledToBottomTable1', () => {
+      assert.ok(false);
+    });
+
+    this.set('onScrolledToBottomTable2', () => {
+      assert.ok(true);
+    });
+
+    await render(hbs `
+      {{#light-table table height='40vh' id='table-1' as |t|}}
+        {{t.head fixed=true}}
+        {{t.body onScrolledToBottom=(action onScrolledToBottomTable1)}}
+      {{/light-table}}
+
+      {{#light-table table height='40vh' id='table-2' as |t|}}
+        {{t.head fixed=true}}
+        {{t.body onScrolledToBottom=(action onScrolledToBottomTable2)}}
+      {{/light-table}}
+    `);
+
+    assert.equal(findAll('#table-2 tbody > tr').length, 50, '50 rows are rendered');
+
+    let scrollContainer = find('#table-2 .tse-scroll-content');
+    assert.ok(scrollContainer, 'scroll container was rendered');
+    let expectedScroll = 2501;
+    assert.equal(scrollContainer.scrollHeight, expectedScroll, 'scroll height is 2500 + 1px for height of lt-infinity');
+
+    scrollContainer.scrollTop = expectedScroll;
+    await triggerEvent(scrollContainer, 'scroll');
+  });
+
+  test('lt-body inViewport event deprecated', async function(assert) {
+    assert.expect(2);
+    this.set('table', new Table(Columns, this.server.createList('user', 5)));
+    this.set('isInViewport', false);
+    this.set('inViewport', () => {
+      assert.ok(true);
+      this.set('isInViewport', true);
+    });
+    this.set('onScrolledToBottom', () => {
+      assert.ok(true);
+    });
+
+    await render(hbs `
+      {{#light-table table height='40vh' id="table" as |t|}}
+        {{t.head fixed=true}}
+        {{t.body isInViewport=isInViewport inViewport=(action inViewport) onScrolledToBottom=(action onScrolledToBottom)}}
+      {{/light-table}}
+    `);
+    let scrollContainer = find('#table .tse-scroll-content');
+    scrollContainer.scrollTop = 2501;
+    await triggerEvent(scrollContainer, 'scroll');
   });
 
   test('fixed header', async function(assert) {
@@ -216,7 +274,9 @@ module('Integration | Component | light table', function(hooks) {
       {{/light-table}}
     `);
 
-    await scrollTo('.tse-scroll-content', 0, expectedScroll);
+    let scrollContainer = find('.tse-scroll-content');
+    scrollContainer.scrollTop = expectedScroll;
+    await triggerEvent(scrollContainer, 'scroll');
   });
 
   test('extra data and tableActions', async function(assert) {
@@ -224,9 +284,11 @@ module('Integration | Component | light table', function(hooks) {
 
     this.owner.register('component:some-component', Component.extend({
       classNames: 'some-component',
+
       didReceiveAttrs() {
         assert.equal(get(this, 'extra.someData'), 'someValue', 'extra data is passed');
       },
+
       click() {
         get(this, 'tableActions.someAction')();
       }
